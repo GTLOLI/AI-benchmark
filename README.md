@@ -4,7 +4,7 @@
 
 一份强大且智能的 Linux 服务器综合性能评测脚本。它不仅能执行专业的基准测试，更能利用大语言模型（LLM）对测试结果进行深度分析，自动生成一份专业、易读的服务器“体检报告”。
 
-This is a powerful and intelligent benchmark script for Linux servers. It not only runs professional-grade benchmarks but also leverages a Large Language Model (LLM) to provide an in-depth analysis of the results, automatically generating a human-readable server "Health Check Report".
+
 
 ---
 
@@ -68,56 +68,18 @@ This is a powerful and intelligent benchmark script for Linux servers. It not on
 
 ### 快速开始 🚀
 
-1.  **克隆仓库**
-    ```bash
-    git clone [https://github.com/你的用户名/你的仓库名.git](https://github.com/你的用户名/你的仓库名.git)
-    cd 你的仓库名
-    ```
-    或者直接下载脚本文件:
-    ```bash
-    curl -O [https://raw.githubusercontent.com/你的用户名/你的仓库名/main/benchmark.sh](https://raw.githubusercontent.com/你的用户名/你的仓库名/main/benchmark.sh)
-    ```
-
-2.  **授予执行权限**
-    ```bash
-    chmod +x benchmark.sh
-    ```
-
-3.  **执行脚本**
-
-    * **基础测试 (不含AI分析和网络)**
-        ```bash
-        ./benchmark.sh
-        ```
-
-    * **完整测试 (包含AI分析和网络)**
-        ```bash
-        # 将 YOUR_API_KEY 替换为你的AI模型API Key
-        # 将 IPERF3_SERVER_IP 替换为你的 iperf3 服务器地址
-        ./benchmark.sh -k YOUR_API_KEY -s IPERF3_SERVER_IP
-        ```
+`curl -O https://raw.githubusercontent.com/GTLOLI/AI-benchmark/refs/heads/main/benchmark.sh && chmod 777 benchmark.sh && ./benchmark.sh`
 
 ### 使用说明
+
+目前系统只支持，ubuntu 与debian
+
+AI接口对接的硅基流动，没有的话可以去注册：https://cloud.siliconflow.cn/
 
 #### 依赖工具
 
 脚本会自动检测以下依赖，如果缺失会提示您自动安装：
 `sysbench`, `fio`, `iperf3`, `jq`, `curl`, `nproc`, `lsb_release`
-
-#### 命令行参数
-
-* `-k <API_KEY>`: 设置用于 AI 分析的 API Key。
-* `-s <SERVER_IP>`: 设置用于网络测试的 `iperf3` 服务器 IP 地址。
-* `-m <MODEL_NAME>`: (可选) 指定 AI 模型名称，默认为 `Qwen/QwQ-32B`。
-* `-h`: 显示帮助信息。
-
-### 自定义配置
-
-您可以直接编辑 `benchmark.sh` 脚本头部的全局配置区域，来调整各项测试的参数，例如：
-
-* `CPU_MAX_PRIME`: CPU 测试强度。
-* `DISK_TEST_SIZE`: 磁盘测试文件的大小。
-* `DISK_TEST_TIME`: 磁盘测试的持续时间。
 
 ### 测试工具说明
 
