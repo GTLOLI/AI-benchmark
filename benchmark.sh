@@ -92,7 +92,7 @@ check_dependencies() {
 # 脚本开始时执行检查
 check_dependencies
 
-echo "优纪服务器性能AI分析 V 1.8版本"
+echo "优纪服务器性能AI分析 V 2.0版本"
 echo "------------------------------------"
 
 # --- 日志文件管理 (使用时间戳) ---
@@ -121,6 +121,10 @@ echo "操作系统: $(lsb_release -d | cut -f2)" | tee -a "$LOG_FILE"
 echo "内核版本: $(uname -r)" | tee -a "$LOG_FILE"
 echo "架构: $(uname -m)" | tee -a "$LOG_FILE"
 echo "CPU 核心数: $(nproc)" | tee -a "$LOG_FILE"
+echo "CPU 型号: $(grep 'model name' /proc/cpuinfo | uniq | cut -d ':' -f2-)" | tee -a "$LOG_FILE"
+echo "物理内存: $(free -h | grep Mem | awk '{print $2}')" | tee -a "$LOG_FILE"
+echo "磁盘信息:" | tee -a "$LOG_FILE"
+lsblk -o NAME,SIZE,TYPE,MOUNTPOINT | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
 
@@ -130,6 +134,9 @@ sysbench cpu --cpu-max-prime=20000 --threads=1 run | tee -a "$LOG_FILE"
 
 echo ">>> CPU 多线程压测 (sysbench, 使用 $(nproc) 线程)" | tee -a "$LOG_FILE"
 sysbench cpu --cpu-max-prime=20000 --threads=$(nproc) run | tee -a "$LOG_FILE"
+
+echo ">>> CPU AES加解密性能测试 (openssl)" | tee -a "$LOG_FILE"
+openssl speed -elapsed -evp aes-256-gcm | tee -a "$LOG_FILE"
 
 ### 线程调度压测
 echo ">>> 线程调度压测 (sysbench)" | tee -a "$LOG_FILE"
