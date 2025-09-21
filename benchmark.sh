@@ -5,50 +5,77 @@ set -eo pipefail
 
 # --- 依赖检查与自动安装函数 ---
 check_dependencies() {
-    local missing_deps=()
-    # 检查所有需要的命令
-    for cmd in sysbench fio iperf3 jq curl nproc lsb_release date grep rm; do
+    local missing_deps_pm=()
+    local missing_speedtest=false
+    # 检查所有需要的命令 (已将 iperf3 替换为 speedtest)
+    for cmd in sysbench fio speedtest jq curl nproc lsb_release date grep rm; do
         if ! command -v "$cmd" &> /dev/null; then
-            # 特殊处理 lsb_release，它的包名是 lsb-release
             if [ "$cmd" = "lsb_release" ]; then
-                missing_deps+=("lsb-release")
+                missing_deps_pm+=("lsb-release")
+            elif [ "$cmd" = "speedtest" ]; then
+                missing_speedtest=true
             else
-                missing_deps+=("$cmd")
+                missing_deps_pm+=("$cmd")
             fi
         fi
     done
 
-    if [ ${#missing_deps[@]} -ne 0 ]; then
-        echo "检测到以下依赖缺失: ${missing_deps[*]}"
+    # 汇总所有缺失的依赖项用于提示
+    local all_missing_deps=("${missing_deps_pm[@]}")
+    if [ "$missing_speedtest" = true ]; then
+        all_missing_deps+=("speedtest")
+    fi
+
+    if [ ${#all_missing_deps[@]} -ne 0 ]; then
+        echo "检测到以下依赖缺失: ${all_missing_deps[*]}"
         read -p "是否尝试自动安装这些依赖? (y/n): " choice
         case "$choice" in
           y|Y )
             echo "正在尝试安装依赖..."
-            # 判断当前用户是否为 root，如果不是，则在命令前加上 sudo
             local SUDO_CMD=""
             if [ "$(id -u)" -ne 0 ]; then
                 SUDO_CMD="sudo"
             fi
 
-            if command -v apt-get &> /dev/null; then
-                $SUDO_CMD apt-get update && $SUDO_CMD apt-get install -y "${missing_deps[@]}"
-            elif command -v yum &> /dev/null; then
-                $SUDO_CMD yum install -y "${missing_deps[@]}"
-            elif command -v dnf &> /dev/null; then
-                $SUDO_CMD dnf install -y "${missing_deps[@]}"
-            else
-                echo "错误: 无法识别您的包管理器 (apt/yum/dnf)，请手动安装依赖。"
-                exit 1
+            # 1. 安装通过常规包管理器可以安装的依赖
+            if [ ${#missing_deps_pm[@]} -ne 0 ]; then
+                if command -v apt-get &> /dev/null; then
+                    $SUDO_CMD apt-get update && $SUDO_CMD apt-get install -y "${missing_deps_pm[@]}"
+                elif command -v yum &> /dev/null; then
+                    $SUDO_CMD yum install -y "${missing_deps_pm[@]}"
+                elif command -v dnf &> /dev/null; then
+                    $SUDO_CMD dnf install -y "${missing_deps_pm[@]}"
+                else
+                    echo "错误: 无法识别您的包管理器 (apt/yum/dnf)，无法自动安装 ${missing_deps_pm[*]}。"
+                fi
             fi
-            # 再次检查以确保安装成功
-            for cmd in sysbench fio iperf3 jq curl nproc lsb_release date grep rm; do
+
+            # 2. 特殊处理 Speedtest 的安装 (兼容 CentOS, Ubuntu, Debian)
+            if [ "$missing_speedtest" = true ]; then
+                echo "正在安装 Speedtest CLI..."
+                if ! command -v curl &> /dev/null; then
+                    echo "错误: 安装 Speedtest 需要 curl，请先手动安装 curl。"
+                    exit 1
+                fi
+                # 判断系统是 Debian系 还是 RedHat系
+                if command -v apt-get &> /dev/null; then # Debian/Ubuntu
+                    curl -s https://install.speedtest.net/app/cli/install.deb.sh | $SUDO_CMD bash
+                    $SUDO_CMD apt-get install -y speedtest
+                elif command -v yum &> /dev/null || command -v dnf &> /dev/null; then # CentOS/RHEL/Fedora
+                    curl -s https://install.speedtest.net/app/cli/install.rpm.sh | $SUDO_CMD bash
+                    $SUDO_CMD yum install -y speedtest
+                else
+                    echo "错误: 无法为您的操作系统自动安装 Speedtest。请访问 https://www.speedtest.net/apps/cli 手动安装。"
+                fi
+            fi
+
+            # 最终检查以确保所有依赖安装成功
+            for cmd in sysbench fio speedtest jq curl nproc lsb_release date grep rm; do
                 if ! command -v "$cmd" &> /dev/null; then
-                    # 从包名反查对应的命令名进行提示
-                    local check_cmd="$cmd"
-                    if [ "$cmd" = "lsb-release" ]; then
-                        check_cmd="lsb_release"
-                    fi
-                    echo "错误: 依赖 $check_cmd 自动安装失败，请手动安装。"
+                    local pkg_name="$cmd"
+                    if [ "$cmd" = "lsb_release" ]; then pkg_name="lsb-release"; fi
+                    if [ "$cmd" = "speedtest" ]; then pkg_name="Speedtest CLI"; fi
+                    echo "错误: 依赖 $pkg_name 自动安装失败，请手动安装。"
                     exit 1
                 fi
             done
@@ -75,7 +102,7 @@ echo ""
 
 # --- 交互式参数输入 ---
 echo "--- 服务器性能测试脚本配置 ---"
-read -p "请输入 iperf3 服务器 IP (直接回车可跳过网络测试): " SERVER_IP
+read -p "是否进行 Speedtest 公网测速? (y/n) [默认为 n]: " RUN_SPEEDTEST
 read -p "请输入 AI 分析的 API Key (直接回车可跳过 AI 分析): " API_KEY
 
 # 只有在输入了 API Key 的情况下才询问模型
@@ -144,13 +171,17 @@ fio --name=randwrite --ioengine=libaio --iodepth=1 --rw=randwrite --bs=4k --dire
 # 自动清理 fio 生成的测试文件
 rm -f randwrite.*
 
-### 网络吞吐压测 (iperf3)
-if [[ -n "$SERVER_IP" ]]; then
-    echo ">>> 网络吞吐压测 (iperf3) -> $SERVER_IP" | tee -a "$LOG_FILE"
-    iperf3 -c "$SERVER_IP" -t 30 | tee -a "$LOG_FILE"
-else
-    echo ">>> 网络吞吐压测 (iperf3) 跳过" | tee -a "$LOG_FILE"
-fi
+### 公网网速压测 (Speedtest)
+case "$RUN_SPEEDTEST" in
+  y|Y )
+    echo ">>> 公网网速压测 (Speedtest)" | tee -a "$LOG_FILE"
+    # 使用 --accept-license 和 --accept-gdpr 来避免脚本因交互而暂停
+    speedtest --accept-license --accept-gdpr | tee -a "$LOG_FILE"
+    ;;
+  * )
+    echo ">>> 公网网速压测 (Speedtest) 跳过" | tee -a "$LOG_FILE"
+    ;;
+esac
 
 ### AI 分析报告
 if [[ -n "$API_KEY" ]]; then
