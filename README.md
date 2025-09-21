@@ -67,7 +67,7 @@
 
 ### 使用说明
 
-目前系统只支持，ubuntu 与debian
+目前系统支持，ubuntu、debian、centos
 
 AI接口对接的硅基流动，没有的话可以去注册：https://cloud.siliconflow.cn/
 
@@ -77,8 +77,7 @@ AI接口对接的硅基流动，没有的话可以去注册：https://cloud.sili
 
 #### 依赖工具
 
-脚本会自动检测以下依赖，如果缺失会提示您自动安装：
-`sysbench`, `fio`, `iperf3`, `jq`, `curl`, `nproc`, `lsb_release`
+脚本会自动检测以下依赖，如果缺失会提示您自动安装
 
 ### 测试工具说明
 
@@ -86,7 +85,7 @@ AI接口对接的硅基流动，没有的话可以去注册：https://cloud.sili
 
 * **Sysbench**: 用于对 CPU、内存、线程调度和磁盘 I/O 进行综合性基准测试。
 * **FIO (Flexible I/O Tester)**: 用于提供更精细化的磁盘 I/O 性能测试，作为 Sysbench 的补充。
-* **iperf3**: 用于测量网络带宽和吞吐量。
+* **Speedtest**: 用于测量网络带宽和吞吐量。
 
 ### 贡献
 
