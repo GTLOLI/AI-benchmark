@@ -92,7 +92,7 @@ check_dependencies() {
 # 脚本开始时执行检查
 check_dependencies
 
-echo "优纪服务器性能AI分析 V 1.6版本"
+echo "优纪服务器性能AI分析 V 1.8版本"
 echo "------------------------------------"
 
 # --- 日志文件管理 (使用时间戳) ---
@@ -147,19 +147,26 @@ echo ">>> 磁盘 IO 压测 (sysbench, 准备文件...)" | tee -a "$LOG_FILE"
 mkdir -p test-data
 cd test-data
 
-sysbench fileio --file-total-size=2G --file-test-mode=rndrw --file-extra-flags=direct --file-fsync-freq=0 --threads=4 prepare > /dev/null
-
+# --- 测试 1: 随机读写 ---
 echo ">>> 磁盘 IO 压测 (sysbench, 随机读写, 4线程)" | tee -a "../$LOG_FILE"
+# 每个测试独立进行 prepare, run, cleanup
+sysbench fileio --file-total-size=2G --file-test-mode=rndrw --file-extra-flags=direct --file-fsync-freq=0 --threads=4 prepare > /dev/null
 sysbench fileio --file-total-size=2G --file-test-mode=rndrw --file-extra-flags=direct --file-fsync-freq=0 --threads=4 --time=60 --report-interval=10 run | tee -a "../$LOG_FILE"
-
-echo ">>> 磁盘 IO 压测 (sysbench, 顺序写)" | tee -a "../$LOG_FILE"
-sysbench fileio --file-total-size=2G --file-test-mode=seqwr --file-extra-flags=direct --file-fsync-freq=0 --threads=4 --time=60 --report-interval=10 run | tee -a "../$LOG_FILE"
-
-echo ">>> 磁盘 IO 压测 (sysbench, 顺序读)" | tee -a "../$LOG_FILE"
-sysbench fileio --file-total-size=2G --file-test-mode=seqrd --file-extra-flags=direct --file-fsync-freq=0 --threads=4 --time=60 --report-interval=10 run | tee -a "../$LOG_FILE"
-
-# 清理测试文件并返回上级目录
 sysbench fileio --file-total-size=2G cleanup > /dev/null
+
+# --- 测试 2: 顺序写 ---
+echo ">>> 磁盘 IO 压测 (sysbench, 顺序写)" | tee -a "../$LOG_FILE"
+sysbench fileio --file-total-size=2G --file-test-mode=seqwr --file-extra-flags=direct --file-fsync-freq=0 --threads=4 prepare > /dev/null
+sysbench fileio --file-total-size=2G --file-test-mode=seqwr --file-extra-flags=direct --file-fsync-freq=0 --threads=4 --time=60 --report-interval=10 run | tee -a "../$LOG_FILE"
+sysbench fileio --file-total-size=2G cleanup > /dev/null
+
+# --- 测试 3: 顺序读 ---
+echo ">>> 磁盘 IO 压测 (sysbench, 顺序读)" | tee -a "../$LOG_FILE"
+sysbench fileio --file-total-size=2G --file-test-mode=seqrd --file-extra-flags=direct --file-fsync-freq=0 --threads=4 prepare > /dev/null
+sysbench fileio --file-total-size=2G --file-test-mode=seqrd --file-extra-flags=direct --file-fsync-freq=0 --threads=4 --time=60 --report-interval=10 run | tee -a "../$LOG_FILE"
+sysbench fileio --file-total-size=2G cleanup > /dev/null
+
+# 返回上级目录并清理文件夹
 cd ..
 rm -rf test-data
 # ==================== 改动结束 ====================
