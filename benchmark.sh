@@ -5,15 +5,23 @@ set -eo pipefail
 
 # --- 依赖检查与自动安装函数 ---
 check_dependencies() {
+    # ... (这部分与原脚本相同，为了简洁此处省略) ...
     local missing_deps_pm=()
     local missing_speedtest=false
     # 检查所有需要的命令 (已将 iperf3 替换为 speedtest)
-    for cmd in sysbench fio speedtest jq curl nproc lsb_release date grep rm; do
+    for cmd in sysbench fio speedtest jq curl nproc lsb_release date grep rm top awk; do # 新增 top 和 awk 检查
         if ! command -v "$cmd" &> /dev/null; then
             if [ "$cmd" = "lsb_release" ]; then
                 missing_deps_pm+=("lsb-release")
             elif [ "$cmd" = "speedtest" ]; then
                 missing_speedtest=true
+            elif [ "$cmd" = "top" ]; then
+                # top 通常包含在 procps 或 procps-ng 包中
+                if command -v apt-get &> /dev/null; then
+                    missing_deps_pm+=("procps")
+                else
+                    missing_deps_pm+=("procps-ng")
+                fi
             else
                 missing_deps_pm+=("$cmd")
             fi
@@ -70,7 +78,7 @@ check_dependencies() {
             fi
 
             # 最终检查以确保所有依赖安装成功
-            for cmd in sysbench fio speedtest jq curl nproc lsb_release date grep rm; do
+            for cmd in sysbench fio speedtest jq curl nproc lsb_release date grep rm top awk; do
                 if ! command -v "$cmd" &> /dev/null; then
                     local pkg_name="$cmd"
                     if [ "$cmd" = "lsb_release" ]; then pkg_name="lsb-release"; fi
@@ -89,10 +97,137 @@ check_dependencies() {
     fi
 }
 
+display_server_info() {
+    echo "正在获取服务器信息..."
+    # 使用ipinfo.io获取公网信息，jq解析
+    IP_INFO=$(curl -s ipinfo.io)
+    
+    # 基础信息
+    HOSTNAME=$(hostname)
+    OS_VERSION=$(lsb_release -ds)
+    LINUX_VERSION=$(uname -r)
+    CPU_ARCH=$(uname -m)
+    CPU_MODEL=$(grep 'model name' /proc/cpuinfo | uniq | cut -d ':' -f2- | sed 's/^[ \t]*//')
+    CPU_CORES=$(nproc)
+    CPU_FREQ=$(grep 'cpu MHz' /proc/cpuinfo | head -n1 | awk '{print $4}')" MHz"
+    
+    # 实时状态
+    CPU_USAGE=$(top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1"%"}')
+    SYS_LOAD=$(uptime | awk -F'load average:' '{print $2}' | sed 's/^[ \t]*//')
+    MEM_INFO=$(free -m | grep Mem)
+    MEM_TOTAL=$(echo "$MEM_INFO" | awk '{print $2}')
+    MEM_USED=$(echo "$MEM_INFO" | awk '{print $3}')
+    MEM_USAGE=$(awk "BEGIN {printf \"%.2f%%\", $MEM_USED/$MEM_TOTAL*100}")
+    SWAP_INFO=$(free -m | grep Swap)
+    SWAP_TOTAL=$(echo "$SWAP_INFO" | awk '{print $2}')
+    SWAP_USED=$(echo "$SWAP_INFO" | awk '{print $3}')
+    SWAP_USAGE=$(if [ "$SWAP_TOTAL" -eq 0 ]; then echo "0%"; else awk "BEGIN {printf \"%.2f%%\", $SWAP_USED/$SWAP_TOTAL*100}"; fi)
+    DISK_INFO=$(df -h / | awk 'NR==2')
+    DISK_TOTAL=$(echo "$DISK_INFO" | awk '{print $2}')
+    DISK_USED=$(echo "$DISK_INFO" | awk '{print $3}')
+    DISK_USAGE=$(echo "$DISK_INFO" | awk '{print $5}')
+    
+    # 网络信息
+    NET_DATA=$(ip -s link | grep "RX:" -A 3 | grep -v "RX:" | awk '{sum1+=$1; sum2+=$5} END {print sum1, sum2}')
+    TOTAL_RX=$(numfmt --to=iec --format="%.2f" $(echo "$NET_DATA" | awk '{print $1}'))
+    TOTAL_TX=$(numfmt --to=iec --format="%.2f" $(echo "$NET_DATA" | awk '{print $2}'))
+    NET_ALGO=$(sysctl net.ipv4.tcp_congestion_control | awk -F '= ' '{print $2}')
+    
+    # 公网信息
+    OPERATOR=$(echo "$IP_INFO" | jq -r '.org // "N/A"')
+    IPV4_ADDR=$(echo "$IP_INFO" | jq -r '.ip // "N/A"')
+    IPV6_ADDR=$(curl -s 6.ipw.cn || echo "N/A")
+    DNS_SERVERS=$(grep "nameserver" /etc/resolv.conf | awk '{print $2}' | tr '\n' ' ')
+    LOCATION=$(echo "$IP_INFO" | jq -r '(.city // "") + ", " + (.region // "") + ", " + (.country // "")')
+    SYS_TIME=$(date +"%Y-%m-%d %H:%M:%S %Z")
+    UPTIME=$(uptime -p)
+
+    # 格式化输出 (添加了边框和标题)
+    echo ""
+    echo "----------------------"
+    printf "%-14s: %s\n" "主机名" "$HOSTNAME"
+    printf "%-14s: %s\n" "系统版本" "$OS_VERSION"
+	echo "----------------------"
+    printf "%-14s: %s\n" "Linux版本" "$LINUX_VERSION"
+    printf "%-14s: %s\n" "CPU架构" "$CPU_ARCH"
+    printf "%-14s: %s\n" "CPU型号" "$CPU_MODEL"
+    printf "%-14s: %s\n" "CPU核心数" "$CPU_CORES"
+    printf "%-14s: %s\n" "CPU频率" "$CPU_FREQ"
+	echo "----------------------"
+    printf "%-14s: %s\n" "CPU占用" "$CPU_USAGE"
+    printf "%-14s: %s\n" "系统负载" "$SYS_LOAD"
+    printf "%-14s: %s / %sMB (%s)\n" "物理内存" "$MEM_USED" "$MEM_TOTAL" "$MEM_USAGE"
+    printf "%-14s: %s / %sMB (%s)\n" "虚拟内存" "$SWAP_USED" "$SWAP_TOTAL" "$SWAP_USAGE"
+    printf "%-14s: %s / %s (%s)\n" "硬盘占用" "$DISK_USED" "$DISK_TOTAL" "$DISK_USAGE"
+	echo "----------------------"
+    printf "%-14s: %s\n" "总接收" "$TOTAL_RX"
+    printf "%-14s: %s\n" "总发送" "$TOTAL_TX"
+	echo "----------------------"
+    printf "%-14s: %s\n" "网络算法" "$NET_ALGO"
+	echo "----------------------"
+    printf "%-14s: %s\n" "运营商" "$OPERATOR"
+    printf "%-14s: %s\n" "IPv4地址" "$IPV4_ADDR"
+    printf "%-14s: %s\n" "IPv6地址" "$IPV6_ADDR"
+    printf "%-14s: %s\n" "DNS地址" "$DNS_SERVERS"
+    printf "%-14s: %s\n" "地理位置" "$LOCATION"
+    printf "%-14s: %s\n" "系统时间" "$SYS_TIME"
+	echo "----------------------"
+    printf "%-14s: %s\n" "运行时长" "$UPTIME"
+}
+
+
+### NEW ###
+# --- 服务器超售检测函数 ---
+check_overselling() {
+    echo ">>> CPU 资源争抢 (超售) 检测" | tee -a "$LOG_FILE"
+    echo "正在检测 CPU Steal Time... (这在虚拟化环境中是关键指标)" | tee -a "$LOG_FILE"
+
+    # 使用 top 命令在批处理模式下运行1次，然后提取 %st (steal time)
+    # 对于多核CPU，top会显示一个总的百分比
+    steal_time=$(top -b -n 1 | grep '%Cpu(s)' | awk '{print $10}' | sed 's/,/./')
+
+    if [[ -z "$steal_time" ]]; then
+        # 如果无法获取到值，可能是一些特殊的系统（如物理机），steal time为0
+        steal_time="0.0"
+    fi
+
+    # 将浮点数转换为整数进行比较
+    steal_time_int=$(printf "%.0f" "$steal_time")
+
+    echo "CPU Steal Time: ${steal_time}%" | tee -a "$LOG_FILE"
+
+    local score=0
+    local conclusion=""
+
+    if (( steal_time_int < 1 )); then
+        score=10
+        conclusion="表现优异。CPU几乎没有资源争抢，性能稳定，很可能不是超售机器或邻居负载极低。"
+    elif (( steal_time_int < 3 )); then
+        score=8
+        conclusion="表现良好。有轻微的CPU资源争抢，但在可接受范围内，对绝大多数应用无明显影响。"
+    elif (( steal_time_int < 5 )); then
+        score=6
+        conclusion="表现中等。存在一定的CPU资源争抢，可能在高峰期对性能敏感型应用造成影响。"
+    elif (( steal_time_int < 10 )); then
+        score=4
+        conclusion="表现较差。存在明显的CPU资源争抢，表明宿主机负载较高，有超售嫌疑，性能会受到影响。"
+    else
+        score=1
+        conclusion="表现极差！CPU资源争抢严重，宿主机严重超售，性能会受到严重影响，不建议用于生产环境。"
+    fi
+
+    echo "超售检测评分: ${score}/10" | tee -a "$LOG_FILE"
+    echo "结论: ${conclusion}" | tee -a "$LOG_FILE"
+}
+### NEW END ###
+
+#输出服务器信息
+display_server_info
+
 # 脚本开始时执行检查
 check_dependencies
 
-echo "优纪服务器性能AI分析 V 2.0版本"
+echo "优纪服务器性能AI分析 V 2.1版本 (已优化)"
 echo "------------------------------------"
 
 # --- 日志文件管理 (使用时间戳) ---
@@ -135,6 +270,9 @@ sysbench cpu --cpu-max-prime=20000 --threads=1 run | tee -a "$LOG_FILE"
 echo ">>> CPU 多线程压测 (sysbench, 使用 $(nproc) 线程)" | tee -a "$LOG_FILE"
 sysbench cpu --cpu-max-prime=20000 --threads=$(nproc) run | tee -a "$LOG_FILE"
 
+# --- 在CPU测试后执行超售检测 ---
+check_overselling | tee -a "$LOG_FILE"
+
 echo ">>> CPU AES加解密性能测试 (openssl)" | tee -a "$LOG_FILE"
 openssl speed -elapsed -evp aes-256-gcm | tee -a "$LOG_FILE"
 
@@ -147,36 +285,33 @@ echo ">>> 内存压测 (sysbench)" | tee -a "$LOG_FILE"
 sysbench memory --memory-block-size=4K --memory-total-size=4G run | tee -a "$LOG_FILE"
 
 
-# ==================== 关键改动区域 ====================
-### 磁盘 IO 压测 (sysbench)
-echo ">>> 磁盘 IO 压测 (sysbench, 准备文件...)" | tee -a "$LOG_FILE"
+### OPTIMIZED ###
+# ==================== 硬盘 IO 测试 (sysbench, 优化流程) ====================
+echo ">>> 磁盘 IO 压测 (sysbench, 准备 1G 测试文件...)" | tee -a "$LOG_FILE"
 # 为兼容新版 sysbench，进入专用目录执行测试
 mkdir -p test-data
 cd test-data
 
-# --- 测试 1: 随机读写 ---
-echo ">>> 磁盘 IO 压测 (sysbench, 随机读写, 4线程)" | tee -a "../$LOG_FILE"
-# 每个测试独立进行 prepare, run, cleanup
-sysbench fileio --file-total-size=2G --file-test-mode=rndrw --file-extra-flags=direct --file-fsync-freq=0 --threads=4 prepare > /dev/null
-sysbench fileio --file-total-size=2G --file-test-mode=rndrw --file-extra-flags=direct --file-fsync-freq=0 --threads=4 --time=60 --report-interval=10 run | tee -a "../$LOG_FILE"
-sysbench fileio --file-total-size=2G cleanup > /dev/null
+# 优化流程: 准备一次，运行多次，清理一次
+sysbench fileio --file-total-size=1G --threads=4 prepare > /dev/null
 
-# --- 测试 2: 顺序写 ---
-echo ">>> 磁盘 IO 压测 (sysbench, 顺序写)" | tee -a "../$LOG_FILE"
-sysbench fileio --file-total-size=2G --file-test-mode=seqwr --file-extra-flags=direct --file-fsync-freq=0 --threads=4 prepare > /dev/null
-sysbench fileio --file-total-size=2G --file-test-mode=seqwr --file-extra-flags=direct --file-fsync-freq=0 --threads=4 --time=60 --report-interval=10 run | tee -a "../$LOG_FILE"
-sysbench fileio --file-total-size=2G cleanup > /dev/null
+echo ">>> 磁盘 IO 压测 (sysbench, 随机读写, 4线程, 30秒)" | tee -a "../$LOG_FILE"
+sysbench fileio --file-total-size=1G --file-test-mode=rndrw --file-extra-flags=direct --file-fsync-freq=0 --threads=4 --time=30 run | tee -a "../$LOG_FILE"
 
-# --- 测试 3: 顺序读 ---
-echo ">>> 磁盘 IO 压测 (sysbench, 顺序读)" | tee -a "../$LOG_FILE"
-sysbench fileio --file-total-size=2G --file-test-mode=seqrd --file-extra-flags=direct --file-fsync-freq=0 --threads=4 prepare > /dev/null
-sysbench fileio --file-total-size=2G --file-test-mode=seqrd --file-extra-flags=direct --file-fsync-freq=0 --threads=4 --time=60 --report-interval=10 run | tee -a "../$LOG_FILE"
-sysbench fileio --file-total-size=2G cleanup > /dev/null
+echo ">>> 磁盘 IO 压测 (sysbench, 顺序写, 4线程, 30秒)" | tee -a "../$LOG_FILE"
+sysbench fileio --file-total-size=1G --file-test-mode=seqwr --file-extra-flags=direct --file-fsync-freq=0 --threads=4 --time=30 run | tee -a "../$LOG_FILE"
+
+echo ">>> 磁盘 IO 压测 (sysbench, 顺序读, 4线程, 30秒)" | tee -a "../$LOG_FILE"
+sysbench fileio --file-total-size=1G --file-test-mode=seqrd --file-extra-flags=direct --file-fsync-freq=0 --threads=4 --time=30 run | tee -a "../$LOG_FILE"
+
+echo ">>> 磁盘 IO 压测 (sysbench, 清理测试文件...)" | tee -a "../$LOG_FILE"
+sysbench fileio --file-total-size=1G cleanup > /dev/null
 
 # 返回上级目录并清理文件夹
 cd ..
 rm -rf test-data
-# ==================== 改动结束 ====================
+# ==================== 优化结束 ====================
+### OPTIMIZED END ###
 
 
 ### 磁盘 IO 压测 (fio)
@@ -205,7 +340,7 @@ if [[ -n "$API_KEY" ]]; then
     # --- AI 服务配置 ---
     API_URL="https://api.siliconflow.cn/v1/chat/completions"
 
-    # 定义 AI 系统 Prompt (优化为纯文本输出)
+    # 定义 AI 系统 Prompt (优化为纯文本输出，并增加了超售检测分析)
     AI_PROMPT='你是一名顶级的服务器性能分析专家。请根据以下压测日志，撰写一份专业、清晰、适合在终端直接阅读的纯文本「服务器性能体检报告」。
 请严格遵守以下格式要求，不要使用任何 Markdown 语法 (如 ##, *, |, > 等)。
 
@@ -225,6 +360,7 @@ if [[ -n "$API_KEY" ]]; then
 
 2.  **分项指标分析**:
     - CPU 性能 (单线程、多线程、加解密性能)
+    - CPU 资源争抢 (超售) 检测  <-- 新增分析项
     - 系统调度性能
     - 内存带宽
     - 磁盘 IO (随机与顺序)
